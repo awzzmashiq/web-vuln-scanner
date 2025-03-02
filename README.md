@@ -2,6 +2,8 @@
 
 A Flask & React-based web vulnerability scanner that checks websites for common security issues using Nikto. 🚀
 
+![image](https://github.com/user-attachments/assets/6112287e-8763-49a3-a608-d1a660502988)
+
 
 
 📌**Project Overview**
@@ -33,8 +35,5 @@ This tool scans a website for **security vulnerabilities** such as:
 **🛠Installation & Setup**
 📌 Clone the Repository
 
-git clone https://github.com/your-github-username/web-vuln-scanner.git
-cd web-vuln-scanner
-
-![image](https://github.com/user-attachments/assets/6112287e-8763-49a3-a608-d1a660502988)
+git clone https://github.com/awzzmashiq/web-vuln-scanner.git
 
