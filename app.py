@@ -32,6 +32,59 @@ def is_valid_url(url):
     )
     return re.match(regex, url) is not None
 
+# Calculate Security Score
+def calculate_security_score(vulnerabilities, url):
+    score = 100  # Start at 100
+    threat_indicators = {
+        "Network Security": 100,
+        "DNS Health": 100,
+        "Patching Cadence": 100,
+        "Endpoint Security": 100,
+        "IP Reputation": 100,
+        "Application Security": 100,
+        "Cubit Score": 100,
+        "Hacker Chatter": 100
+    }
+
+    # 🔴 **Check if the URL is using HTTP (not HTTPS)**
+    if url.startswith("http://"):
+        print("⚠️ Detected HTTP (not HTTPS) - Deducting 30 points")
+        threat_indicators["Network Security"] -= 30
+
+    # 🔍 **Reduce score based on vulnerabilities**
+    for vuln in vulnerabilities:
+        if "X-Content-Type-Options header is not set" in vuln:
+            threat_indicators["Network Security"] -= 15
+        if "SQL Injection" in vuln or "SQL" in vuln:
+            threat_indicators["Application Security"] -= 40
+        if "Cross-Site Scripting" in vuln or "XSS" in vuln:
+            threat_indicators["Application Security"] -= 30
+        if "malware" in vuln or "spam" in vuln:
+            threat_indicators["IP Reputation"] -= 40
+        if "out of date" in vuln:
+            threat_indicators["Patching Cadence"] -= 35
+
+    # 🛡️ **Ensure no negative scores**
+    for key in threat_indicators:
+        if threat_indicators[key] < 0:
+            threat_indicators[key] = 0
+
+    # 🔢 **Calculate final security score**
+    overall_score = sum(threat_indicators.values()) // len(threat_indicators)
+
+    # 🔡 Convert to grades (A, B, C, D, F)
+    def grade(score):
+        if score >= 90: return "A"
+        elif score >= 75: return "B"
+        elif score >= 60: return "C"
+        elif score >= 40: return "D"
+        else: return "F"
+
+    for category in threat_indicators:
+        threat_indicators[category] = {"score": threat_indicators[category], "grade": grade(threat_indicators[category])}
+
+    return overall_score, threat_indicators
+
 # Run Nikto Scan
 def run_nikto_scan(target_url):
     try:
@@ -46,76 +99,25 @@ def run_nikto_scan(target_url):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120
         )
 
-        print(f"✅ Nikto Output:\n{result.stdout}")
-        print(f"⚠️ Nikto Errors:\n{result.stderr}")
+        vulnerabilities = [line.strip() for line in result.stdout.split("\n") if "OSVDB" in line or "XSS" in line or "SQL" in line or "vulnerability" in line]
 
-        vulnerabilities = []
-        score = 100
+        overall_score, threat_indicators = calculate_security_score(vulnerabilities, target_url)
 
-        # Reduce score for HTTP (no SSL)
-        if target_url.startswith("http://"):
-            vulnerabilities.append("⚠️ Website is using HTTP instead of HTTPS. Not secure!")
-            score -= 20  
-
-        for line in result.stdout.split("\n"):
-            if "OSVDB" in line or "XSS" in line or "SQL" in line or "vulnerability" in line:
-                vulnerabilities.append(line.strip())
-                if "SQL" in line:
-                    score -= 20
-                elif "XSS" in line:
-                    score -= 15
-                elif "TRACE" in line or "insecure headers" in line:
-                    score -= 10
-                elif "admin" in line or "open directory" in line:
-                    score -= 5
-                elif "information leakage" in line:
-                    score -= 5
-                else:
-                    score -= 2  
-
-            # Detect missing security headers
-            if "X-Content-Type-Options header is not set" in line:
-                vulnerabilities.append("Missing X-Content-Type-Options header (Clickjacking Risk)")
-                score -= 5
-
-            if "Server: No banner retrieved" in line:
-                vulnerabilities.append("Server fingerprinting disabled (No Banner)")
-                score -= 2
-
-        return {"vulnerabilities": vulnerabilities, "security_score": max(score, 0)}
+        return {"security_score": overall_score, "threat_indicators": threat_indicators, "vulnerabilities": vulnerabilities}
 
     except subprocess.TimeoutExpired:
         return {"error": "Nikto scan took too long and was stopped."}
-
-    except Exception as e:
-        return {"error": str(e)}
 
 # API to Scan a Website
 @app.route('/scan', methods=['POST'])
 def scan_website():
     data = request.get_json()
-    
-    if not data or "url" not in data:
-        return jsonify({"error": "URL is required"}), 400
+    url = data.get("url")
 
-    url = data["url"].strip()
-
-    # Validate URL before scanning
     if not is_valid_url(url):
-        return jsonify({"error": "Invalid URL format"}), 400
-
-    print(f"📡 Received scan request for: {url}")
+        return jsonify({"error": "Invalid URL"}), 400
 
     scan_results = run_nikto_scan(url)
-
-    # If Nikto scan fails, return an error response
-    if "error" in scan_results:
-        return jsonify({"error": scan_results["error"]}), 500
-
-    # Save results if scan is successful
-    new_scan = ScanResult(url=url, vulnerabilities=scan_results["vulnerabilities"], security_score=scan_results["security_score"])
-    db.session.add(new_scan)
-    db.session.commit()
 
     return jsonify(scan_results)
 
